@@ -1,0 +1,960 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.0" rel="stylesheet" type="text/css" />
+
+
+  <meta name="keywords" content="git revert,git checkout,git reset," />
+
+
+
+
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.0" />
+
+
+
+
+
+
+<meta name="description" content="近期在工作中遇到一个比较有意思的问题，可以抽象为下面这种情况：有某分支：commit1 &amp;lt;- commit2 &amp;lt;- commit3 &amp;lt;- commit4(&amp;lt;-HEAD)，现需要将代码恢复到commit1提交后的状态，并且保持commit2, 3, 4的存在，即需要将分支变成：commit1 &amp;lt;- commit2 &amp;lt;- commit3 &amp;lt;- commit4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="由一个业务问题简析git revert/checkout/reset操作">
+<meta property="og:url" content="http://liuzmeng.github.io/2017/03/07/revert-checkout-reset/index.html">
+<meta property="og:site_name" content="剑走偏锋的博客">
+<meta property="og:description" content="近期在工作中遇到一个比较有意思的问题，可以抽象为下面这种情况：有某分支：commit1 &amp;lt;- commit2 &amp;lt;- commit3 &amp;lt;- commit4(&amp;lt;-HEAD)，现需要将代码恢复到commit1提交后的状态，并且保持commit2, 3, 4的存在，即需要将分支变成：commit1 &amp;lt;- commit2 &amp;lt;- commit3 &amp;lt;- commit4">
+<meta property="og:updated_time" content="2017-03-15T08:04:11.000Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="由一个业务问题简析git revert/checkout/reset操作">
+<meta name="twitter:description" content="近期在工作中遇到一个比较有意思的问题，可以抽象为下面这种情况：有某分支：commit1 &amp;lt;- commit2 &amp;lt;- commit3 &amp;lt;- commit4(&amp;lt;-HEAD)，现需要将代码恢复到commit1提交后的状态，并且保持commit2, 3, 4的存在，即需要将分支变成：commit1 &amp;lt;- commit2 &amp;lt;- commit3 &amp;lt;- commit4">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"right","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="http://liuzmeng.github.io/2017/03/07/revert-checkout-reset/"/>
+
+
+
+
+
+  <title> 由一个业务问题简析git revert/checkout/reset操作 | 剑走偏锋的博客 </title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+  <script type="text/javascript">
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?57a9e1b976693323afa4c882b2ef0f1a";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(hm, s);
+    })();
+  </script>
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  <div class="container one-collumn sidebar-position-right page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta ">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">剑走偏锋的博客</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">追求卓越</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-th"></i> <br />
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br />
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="http://liuzmeng.github.io/2017/03/07/revert-checkout-reset/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="liuzhimeng">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/uploads/avatar.png">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="剑走偏锋的博客">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+            
+            
+              
+                由一个业务问题简析git revert/checkout/reset操作
+              
+            
+          </h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-03-07T19:33:21+08:00">
+                2017-03-07
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Git/" itemprop="url" rel="index">
+                    <span itemprop="name">Git</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                <span class="post-meta-divider">|</span>
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-comment-o"></i>
+                </span>
+                <a href="/2017/03/07/revert-checkout-reset/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count ds-thread-count" data-thread-key="2017/03/07/revert-checkout-reset/" itemprop="commentCount"></span>
+                </a>
+              </span>
+            
+          
+
+          
+          
+             <span id="/2017/03/07/revert-checkout-reset/" class="leancloud_visitors" data-flag-title="由一个业务问题简析git revert/checkout/reset操作">
+               <span class="post-meta-divider">|</span>
+               <span class="post-meta-item-icon">
+                 <i class="fa fa-eye"></i>
+               </span>
+               
+                 <span class="post-meta-item-text">阅读次数 </span>
+               
+                 <span class="leancloud-visitors-count"></span>
+             </span>
+          
+
+          
+
+          
+        </div>
+      </header>
+    
+
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p>近期在工作中遇到一个比较有意思的问题，可以抽象为下面这种情况：<br>有某分支：commit1 &lt;- commit2 &lt;- commit3 &lt;- commit4(&lt;-HEAD)，现需要将代码恢复到commit1提交后的状态，并且保持commit2, 3, 4的存在，即需要将分支变成：commit1 &lt;- commit2 &lt;- commit3 &lt;- commit4 &lt;- commit1’(&lt;-HEAD)，其中commit1’的代码与commit1相同。在要求只通过git操作来完成的前提下，由对解决此问题的git方法展开一些分析和思考。<br><a id="more"></a></p>
+<h3 id="git-reset-方法（推荐）："><a href="#git-reset-方法（推荐）：" class="headerlink" title="git reset 方法（推荐）："></a>git reset 方法（推荐）：</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line">$ git reset --hard commit1</div><div class="line">$ git reset --soft @&#123;1&#125; <span class="comment"># 或者 git reset --soft commit4</span></div><div class="line">$ git commit -m <span class="string">"commit message"</span></div></pre></td></tr></table></figure>
+<p><em>git reset - -[param] &lt;commit&gt;</em> 操作会将当前分支的 <em>HEAD</em> 从最新的本地 <em>commit</em> 移动到 &lt;commit&gt;，而在移动的同时，会通过 <em>- -</em> 所携带的参数处理工作区（Working Directory）和暂存区（Stage/Index）保存的文件，参数具体作用为：</p>
+<ul>
+<li><em>- -mixed</em>: 重置暂存区的修改到工作区，保留工作区的修改（此操作为默认操作）；</li>
+<li><em>- -hard</em>: 清空所有工作区和暂存区的所有修改；</li>
+<li><em>- -soft</em>: 保留工作区和暂存区的修改，并且把 <em>&lt;commit&gt;</em> 时文件修改前的状态添加到暂存区；</li>
+<li><em>- -merge</em>: 清空暂存区，恢复工作区到 <em>&lt;commit&gt;</em> 时的状态，如果与reset前的工作区状态发生冲突，则终止reset；</li>
+<li><em>- -keep</em>: 清空暂存区，保留工作区在 <em>&lt;commit&gt;</em> 时的修改，如果与reset前的工作区状态发生冲突，则终止reset。</li>
+</ul>
+<p>其中 merge 和 keep 参数不常用，<em>- -merge</em> 操作按照官方文档的解释，如果需要，一般是用于在撤销 merge 或者 pull 操作时，恢复 merge 或 pull 前的工作区</p>
+<pre><code>$ git pull 
+Auto-merging nitfol
+Merge made by recursive.
+ nitfol                |   20 +++++----
+ ...
+$ git reset --merge ORIG_HEAD
+</code></pre><p>在上面的示例中，git pull 操作之前，工作区存在被修改的文件，要 reset 回 git pull 之前的状态，如果是 git reset –hard ORIG_HEAD，工作区的变动也会被清空，此时 git reset –merge 就会保留工作区中的变动。</p>
+<h3 id="git-revert-方法（推荐）："><a href="#git-revert-方法（推荐）：" class="headerlink" title="git revert 方法（推荐）："></a>git revert 方法（推荐）：</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$ git revert -n master~3..master~1 <span class="comment">#假设为master分支</span></div><div class="line">$ git commit -m <span class="string">"commit message"</span></div></pre></td></tr></table></figure>
+<p>reset 操作用于恢复提交历史中的某些 commit ，可以恢复修改前的文件到工作区和暂存区，也可以在当前 commit 基础上，添加新的 commit，常用的句法为：</p>
+<pre><code>git revert [--[no-]edit] [-n] [-m parent-number] &lt;commit&gt;…
+</code></pre><ul>
+<li><em>–[no-]edit</em>: 恢复并提交后（不）进行编辑 commit 信息，默认为进入编辑 commit 信息；</li>
+<li><em><a href="--no-commit">-n</a></em>: 将所有恢复后的文件状态保存在工作区，不进行提交；</li>
+<li><em>[-m parent-number]</em>: 需要恢复的 commit 的起始和结束的序号，当前 HEAD 所在 commit 计为 1；</li>
+<li><em>&lt;commit&gt;</em>: 需要恢复的 commit；</li>
+</ul>
+<p>在此方法中，<em>master~3..master~1</em> 有很多种简写形式，如 <em>master~3..</em> , <em>HEAD~3..HEAD</em>。此外，关于是否有 <em>-n</em> 参数，在此示例中有一个很明显的区别是，如果不带有 <em>-n</em> 参数，会连续进行三次 revert 的 commit 提交，反之则将所有 revert 后变动的文件状态一并保存在工作区，最后只需一次 commit 即可。<br>revert 操作不会保留 revert 之前 commit 时新增的文件。</p>
+<h3 id="git-checkout-方法："><a href="#git-checkout-方法：" class="headerlink" title="git checkout 方法："></a>git checkout 方法：</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div></pre></td><td class="code"><pre><div class="line">$ git checkout <span class="_">-f</span> commit1 -- .</div><div class="line">$ git commit -m <span class="string">"commit message"</span></div></pre></td></tr></table></figure>
+<p>checkout操作用于从历史提交（或者暂存区）中拷贝文件到工作区，也可用于切换分支.此项方法是用checkout把 <em>- -</em> 所指定的文件（paths）恢复到 <em>commit1</em> 状态并保存在暂存区，也就是说，commit1之后的所有提交中如果有 <em>- -</em> 指定的文件，文件所有改动会被撤销并保存在暂存区。</p>
+<p>特别要注意的是，此方法会保留在commit2，commit3，commit4提交时新增的文件，因此属于不干净操作。</p>
+<ul>
+<li><em>-f (force)</em>: 清空所有工作区和暂存区的所有修改。</li>
+</ul>
+<p>其中 <em>- -</em> 不能省略，省略<em>- -</em>时，git会有如下提示：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div></pre></td><td class="code"><pre><div class="line">$ git checkout commit1</div><div class="line">filename git:(35850b2) git status</div><div class="line">HEAD detached at 35850b2</div><div class="line">nothing to commit, working tree clean</div><div class="line">filename git:(35850b2)</div></pre></td></tr></table></figure>
+<p>省略 <em>- -</em> 实际上是checkout的另外一种用法：</p>
+<pre><code>git checkout [-q] [-f] [-m] [--detach] [&lt;branch&gt;]
+</code></pre><p>此方法会将HEAD与master分离(<em>–detach</em> 为默认操作)，HEAD会指向 <em>commit1</em> ，并且之后的提交操作会在 <em>commit1</em> 基础上创建新的 commit 点（并不是新分支），如果需要产生新分支，使用 <em>git checkout -b branchname</em>： </p>
+<pre><code>$ git checkout b
+$ edit; git add; git commit (生成 e)
+
+     HEAD (refers to commit &apos;e&apos;)
+      |
+      v
+      e
+     /
+a---b---c---d  branch &apos;master&apos; (refers to commit &apos;d&apos;)
+
+ $ git checkout -b f
+
+        HEAD (refers to commit &apos;f&apos;)
+          |
+          v
+      e---f(new branch)
+     /
+a---b---c---d  branch &apos;master&apos; (refers to commit &apos;d&apos;)
+</code></pre><p>需要注意的是，如果在 <em>git checkout -b branchname</em> 之前切换到了其他分支，那么从 <em>b</em> 生成的新分支 <em>e—f</em> 将不会被保留。</p>
+<hr>
+<p>参考链接：<br><a href="http://stackoverflow.com/questions/1463340/revert-multiple-git-commits" target="_blank" rel="external">starkoverflow: Revert multiple git commits</a>&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://git-scm.com/docs/git-checkout" target="_blank" rel="external">git-checkout</a>&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://git-scm.com/docs/git-revert" target="_blank" rel="external">git-revert</a>&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://git-scm.com/docs/git-reset" target="_blank" rel="external">git-reset</a></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/git-revert/" rel="tag"># git revert</a>
+          
+            <a href="/tags/git-checkout/" rel="tag"># git checkout</a>
+          
+            <a href="/tags/git-reset/" rel="tag"># git reset</a>
+          
+        </div>
+      
+
+      
+        
+      
+
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+        <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+  <a class="jiathis_button_tsina"></a>
+  <a class="jiathis_button_tqq"></a>
+  <a class="jiathis_button_weixin"></a>
+  <a class="jiathis_button_cqq"></a>
+  <a class="jiathis_button_douban"></a>
+  <a class="jiathis_button_renren"></a>
+  <a class="jiathis_button_qzone"></a>
+  <a class="jiathis_button_kaixin001"></a>
+  <a class="jiathis_button_copy"></a>
+  <a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank"></a>
+  <a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript" >
+  var jiathis_config={
+    hideMore:false
+  }
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+  <p>热评文章</p>
+  <div class="ds-top-threads" data-range="weekly" data-num-items="4"></div>
+
+
+          
+  <div class="comments" id="comments">
+    
+      <div class="ds-thread" data-thread-key="2017/03/07/revert-checkout-reset/"
+           data-title="由一个业务问题简析git revert/checkout/reset操作" data-url="http://liuzmeng.github.io/2017/03/07/revert-checkout-reset/">
+      </div>
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap" >
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image"
+               src="/uploads/avatar.png"
+               alt="liuzhimeng" />
+          <p class="site-author-name" itemprop="name">liuzhimeng</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">1</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">1</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">3</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+
+        <div class="links-of-author motion-element">
+          
+            
+              <span class="links-of-author-item">
+                <a href="https://liuzmeng.github.io" target="_blank" title="GitHub">
+                  
+                    <i class="fa fa-fw fa-github"></i>
+                  
+                  GitHub
+                </a>
+              </span>
+            
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#git-reset-方法（推荐）："><span class="nav-number">1.</span> <span class="nav-text">git reset 方法（推荐）：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#git-revert-方法（推荐）："><span class="nav-number">2.</span> <span class="nav-text">git revert 方法（推荐）：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#git-checkout-方法："><span class="nav-number">3.</span> <span class="nav-text">git checkout 方法：</span></a></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  
+  &copy; 
+  <span itemprop="copyrightYear">2017</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">liuzhimeng</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+
+        
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.0"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.0"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.0"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.0"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.0"></script>
+
+
+
+  
+
+  
+    
+  
+
+  <script type="text/javascript">
+    var duoshuoQuery = {short_name:"liuzm"};
+    (function() {
+      var ds = document.createElement('script');
+      ds.type = 'text/javascript';ds.async = true;
+      ds.id = 'duoshuo-script';
+      ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+      ds.charset = 'UTF-8';
+      (document.getElementsByTagName('head')[0]
+      || document.getElementsByTagName('body')[0]).appendChild(ds);
+    })();
+  </script>
+
+  
+    
+    
+    <script src="/lib/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+    <script src="/js/src/hook-duoshuo.js"></script>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+
+  
+  
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        tex2jax: {
+          inlineMath: [ ['$','$'], ["\\(","\\)"]  ],
+          processEscapes: true,
+          skipTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+        }
+      });
+    </script>
+
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Queue(function() {
+        var all = MathJax.Hub.getAllJax(), i;
+        for (i=0; i < all.length; i += 1) {
+          all[i].SourceElement().parentNode.className += ' has-jax';
+        }
+      });
+    </script>
+    <script type="text/javascript" src="//cdn.bootcss.com/mathjax/2.7.0/MathJax.js"></script>
+  
+
+
+  
+
+  
+  <script src="https://cdn1.lncld.net/static/js/av-core-mini-0.6.1.js"></script>
+  <script>AV.initialize("21RVshxtIpzJkvk2xqkAJ6Pu-gzGzoHsz", "9akFdigPH0gokkFg2E5B4iGX");</script>
+  <script>
+    function showTime(Counter) {
+      var query = new AV.Query(Counter);
+      var entries = [];
+      var $visitors = $(".leancloud_visitors");
+
+      $visitors.each(function () {
+        entries.push( $(this).attr("id").trim() );
+      });
+
+      query.containedIn('url', entries);
+      query.find()
+        .done(function (results) {
+          var COUNT_CONTAINER_REF = '.leancloud-visitors-count';
+
+          if (results.length === 0) {
+            $visitors.find(COUNT_CONTAINER_REF).text(0);
+            return;
+          }
+
+          for (var i = 0; i < results.length; i++) {
+            var item = results[i];
+            var url = item.get('url');
+            var time = item.get('time');
+            var element = document.getElementById(url);
+
+            $(element).find(COUNT_CONTAINER_REF).text(time);
+          }
+          for(var i = 0; i < entries.length; i++) {
+            var url = entries[i];
+            var element = document.getElementById(url);
+            var countSpan = $(element).find(COUNT_CONTAINER_REF);
+            if( countSpan.text() == '') {
+              countSpan.text(0);
+            }
+          }
+        })
+        .fail(function (object, error) {
+          console.log("Error: " + error.code + " " + error.message);
+        });
+    }
+
+    function addCount(Counter) {
+      var $visitors = $(".leancloud_visitors");
+      var url = $visitors.attr('id').trim();
+      var title = $visitors.attr('data-flag-title').trim();
+      var query = new AV.Query(Counter);
+
+      query.equalTo("url", url);
+      query.find({
+        success: function(results) {
+          if (results.length > 0) {
+            var counter = results[0];
+            counter.fetchWhenSave(true);
+            counter.increment("time");
+            counter.save(null, {
+              success: function(counter) {
+                var $element = $(document.getElementById(url));
+                $element.find('.leancloud-visitors-count').text(counter.get('time'));
+              },
+              error: function(counter, error) {
+                console.log('Failed to save Visitor num, with error message: ' + error.message);
+              }
+            });
+          } else {
+            var newcounter = new Counter();
+            /* Set ACL */
+            var acl = new AV.ACL();
+            acl.setPublicReadAccess(true);
+            acl.setPublicWriteAccess(true);
+            newcounter.setACL(acl);
+            /* End Set ACL */
+            newcounter.set("title", title);
+            newcounter.set("url", url);
+            newcounter.set("time", 1);
+            newcounter.save(null, {
+              success: function(newcounter) {
+                var $element = $(document.getElementById(url));
+                $element.find('.leancloud-visitors-count').text(newcounter.get('time'));
+              },
+              error: function(newcounter, error) {
+                console.log('Failed to create');
+              }
+            });
+          }
+        },
+        error: function(error) {
+          console.log('Error:' + error.code + " " + error.message);
+        }
+      });
+    }
+
+    $(function() {
+      var Counter = AV.Object.extend("Counter");
+      if ($('.leancloud_visitors').length == 1) {
+        addCount(Counter);
+      } else if ($('.post-title-link').length > 1) {
+        showTime(Counter);
+      }
+    });
+  </script>
+
+
+
+  
+
+  
+
+
+  
+</body>
+</html>
